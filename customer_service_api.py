@@ -2,16 +2,16 @@ import os, sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
 from typing import List, Optional
-import openai
+import google.generativeai as genai
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 DB_PATH = os.getenv('CUSTOMER_SERVICE_DB_PATH', 'customer_service.db')
 API_HOST = os.getenv('API_HOST', '0.0.0.0')
 API_PORT = int(os.getenv('API_PORT', '8002'))
-openai.api_key = OPENAI_API_KEY
+if GOOGLE_API_KEY: genai.configure(api_key=GOOGLE_API_KEY)
 
 app = FastAPI(title='Customer Service Automation API', version='1.0.0')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
@@ -47,24 +47,23 @@ def init_db():
         conn.commit()
 
 def generate_reply(message: str, business_type: str) -> str:
-    if not OPENAI_API_KEY:
-        raise HTTPException(status_code=500, detail='OPENAI_API_KEY is not configured.')
-    system_prompt = f'You are a helpful professional customer service assistant for a {business_type}. Reply in 1-3 sentences. Be friendly and brief. Offer to help book if relevant.'
+    if not GOOGLE_API_KEY:
+        raise HTTPException(status_code=500, detail='GOOGLE_API_KEY is not configured.')
+    prompt = f'You are a helpful professional customer service assistant for a {business_type}. Reply in 1-3 sentences. Be friendly and brief. Offer to help book if relevant.\n\nCustomer message: {message}'
     try:
-        response = openai.ChatCompletion.create(model='gpt-3.5-turbo', messages=[{'role':'system','content':system_prompt},{'role':'user','content':message}], max_tokens=150, temperature=0.7)
-        return response.choices[0].message['content'].strip()
-    except openai.error.AuthenticationError:
-        raise HTTPException(status_code=500, detail='Invalid OpenAI API key.')
-    except openai.error.RateLimitError:
-        raise HTTPException(status_code=429, detail='Rate limit reached.')
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f'AI failed: {str(e)}')
+        model = genai.GenerativeModel('gemini-pro')
+        response = model.generate_content(prompt)
+        reply = response.text.strip()
+        if not reply: raise HTTPException(status_code=502, detail='Gemini returned empty reply.')
+        return reply
+    except HTTPException: raise
+    except Exception as e: raise HTTPException(status_code=502, detail=f'Gemini API error: {str(e)}')
 
 @app.on_event('startup')
 def startup(): init_db()
 
 @app.get('/health')
-def health(): return {'status': 'ok'}
+def health(): return {'status': 'ok', 'ai': 'gemini'}
 
 @app.post('/process-message', response_model=ProcessMessageResponse, status_code=201)
 def process_message(req: ProcessMessageRequest):
