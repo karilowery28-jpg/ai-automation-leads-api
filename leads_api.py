@@ -4,7 +4,7 @@ from typing import List
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -29,7 +29,9 @@ class LeadCreate(BaseModel):
     phone: str = Field(..., min_length=7, max_length=25)
     message: str = Field(..., min_length=10, max_length=2000)
     service_interest: str = Field(..., min_length=2, max_length=100)
-    model_config = ConfigDict(str_strip_whitespace=True)
+
+    class Config:
+        anystr_strip_whitespace = True
 
 class LeadResponse(BaseModel):
     id: int
@@ -84,4 +86,3 @@ def get_leads(admin: str = Depends(require_admin)):
 if __name__ == '__main__':
     import uvicorn
     uvicorn.run('leads_api:app', host=API_HOST, port=API_PORT, reload=False)
-
